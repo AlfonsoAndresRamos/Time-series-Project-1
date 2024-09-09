@@ -1,0 +1,249 @@
+---
+title: "Time series project 1 Alfonso"
+author: "Alfonso Andres"
+date: "2023-04-13"
+output: html_document
+---
+## Project Overview
+In this project, we will analyze three distinct datasets using time series analysis techniques to explore various financial and economic phenomena. The key objectives of this project are:
+
+Regression Model with Time Series Errors:
+
+We will examine a dataset containing log prices of futures and spot prices, alongside the cost-of-carry. The focus will be on building a regression model between the log returns of futures and spot prices, with an emphasis on understanding the nature of the residuals. We will investigate whether a white noise model suffices for the residuals or if more complex ARMA or AR models provide a better fit.
+ARIMA Model for GDP Deflator:
+
+Using the quarterly GDP deflator data for the United States from 1947 to 2008, we will build and validate an ARIMA model. The goal is to understand the underlying patterns and to predict inflation for each quarter of 2009.
+Analysis of IBM and S&P 500 Returns:
+
+We will analyze the monthly log returns of IBM stock and the S&P 500 index from January 1926 to December 2008. This part of the project includes visual analysis, scatterplots, and autocorrelation function (ACF) computation. We will fit a VAR model to the bivariate time series data, explore the relationships between the variables, and compare the results with a VMA model. 
+
+## Part 1: Logistic prizes. ARMA model
+```{r}
+www = "https://www.mimuw.edu.pl/~noble/courses/TimeSeries/data/sp5may.dat"
+df1 = read.csv(www,sep = "")
+ft <- df1$lnfuture
+st <- df1$lnspot
+y <- diff(ft)
+x <- diff(st)
+fit <- lm(y ~ x)
+fit$coefficients
+summary(fit)
+
+```
+We create $x = f_{t}-f_{t-1}$ and $y = s_{t} - s_{t-1}$. We then fit them into a least square regression model and check the coefficients 
+```{r}
+errors <-fit$residuals
+
+timeseries<- ts(errors,frequency = 60)
+
+white <- arima(timeseries, order = c(0,0,0))
+stl<-stl(timeseries,s.window = "periodic")
+plot(stl)
+```
+We extract the coefficients of the regression aand work with them fitting and arima(0,0,0) model. Meaning that we are trying to fit a white noise model
+```{r}
+acfres<-acf(white$residuals, PLOT = FALSE)  # plot the ACF of the residuals
+acf(white$residuals)  # plot the ACF of the residuals
+```
+```{r}
+acfres
+```
+We can see that the values of the ACF make sense indee since practically 0 independently of the lag that we use.
+To know if is a good fit the ACF should be$ACF= 1$ for lag = 0 and $ACF\approx0$ for every other $lag\neq 0$
+
+```{r}
+qqnorm(white$residuals)  # plot the normal QQ-plot of the residuals
+qqline(white$residuals) 
+```
+We see that the residuals are not entirely normally distributed but the approximation could indeed be good enough.
+```{r}
+aic <- matrix(NA, nrow = 3, ncol = 3)
+
+
+for (p in 0:2) {
+  for (q in 0:2) {
+    
+    # Fit the ARMA(p,q) model
+    arma <- arima(timeseries, order = c(p,0,q))
+    
+    # Store the AIC value of the model in the matrix
+    aic[p+1, q+1] <- AIC(arma)
+  }
+}
+
+# Print the matrix of AIC values
+print(aic)
+```
+We create a matrix with the AIC values for the different coefficients of the $ARMA(p,q)$. Every AIC from the first column is a $MA(q)$ process, whereas every value from the first row is a $AR(p)$ process. The $M(1,1)$ position of the matrix corrresponds to a white noise process plotted and evaluated before. 
+As we know the process whith the smallest AIC is the best fit for the model when we work with this type of criterio.In this case the best fit for the sample of residuals is a $ARMA(1,1)$ process.
+```{r}
+armafit <- arima(timeseries, order = c(1,0,1))
+par(mfrow = c(2, 1))
+plot(armafit$residuals, ylab = 'Residuals', main = "ARMA(1,1)")
+plot(white$residuals, ylab = 'Residuals', main ="x~WN(0,sigma)")
+
+```
+
+We plot the residuals for the selected fitted model $ARMA(1,1)$. Despite having the smallest AIC we compare it to the process whith the biggest AIC and the difference is not so big. Both models would give accurate predictions, however the first one would have a better outcome.
+```{r}
+ar1 <- arima(timeseries,order=c(1,0,0))
+ar2 <- arima(timeseries,order=c(2,0,0))
+par(mfrow = c(2, 1))
+plot(ar1$residuals,type = 'l',col = 'red', main= 'AR(2) on top of AR(1)')
+lines(ar2$residuals, col = 'green')
+plot(ar2$residuals,type = 'l',col = 'red', main = 'AR(1) ON TOP OF AR(2)')
+lines(ar1$residuals, col = 'green')
+```
+
+We already know from the computed AIC for different $ARMA(p,q)$ with $p,q \in {{0,1,2}}$ that $AR(1)$ and $AR(2)$ are both better fitted models than the $WN(0,\sigma)$. Here we plot them and see the little difference between them.
+First we plot the $AR(2)$ Residuals on top of the $AR(1)$ and viceversa. The small red dots that standout are minimal in comparision with the entire graph.
+
+## Part 2: US inflation (1947-2008). ARIMA model
+```{r}
+library('dplyr')
+library('forecast')
+library('FCVAR')
+library('vars')
+library('MTS')
+library('tsDyn')
+library('TSSS')
+www2 = "https://www.mimuw.edu.pl/~noble/courses/TimeSeries/data/q-gdpdef.txt"
+df2 = read.csv(www2, sep = "", ) ##Loading the data into a df2 variable
+tsus <-ts(df2$gdpdef,start=1947, frequency = 4)
+plot(tsus)
+lines(tsus,col = 'purple')
+```
+We create and plot a time series with frequency 4 (January, March , July and October), starting from 1947. We then proceed to plot it to see a general behavior. We know the dataset is about the inflation and how the value of prices has gone up over time. As it shows on the graph there is a general increase over the years
+```{r}
+January<-df2 %>% filter(mom<2)
+March<-df2 %>% filter(mom>2,mom<5)
+July<-df2 %>% filter(mom>5,mom<10)
+October<-df2 %>% filter(mom>8)
+bymonth <- data.frame(January = January$gdpdef,
+             March = March$gdpdef,July = July$gdpdef,October = October$gdpdef)
+bymonthts <- ts(bymonth)
+plot(x =bymonthts, col='orange')
+```
+We plot the increase by month and see that is greatly alike but January is outstanding With a much higher increse generally.
+```{r}
+auto.arima(tsus,ic='bic')
+auto.arima(tsus,ic = 'aic')
+```
+We use the arima auto function to see which ARIMA process was the best fit in relation to the AIC, BIC criterion.
+We see that the optimum ARIMA is ARIMA(0,2,1) with no AR part
+```{r}
+arimaauto<- arima(tsus,order = c(0,2,1))
+forecast <-predict(arimaauto,n.ahead = 4)
+forecast$pred
+```
+We fit the sample with the designated model $(0,2,1)$ and predict the next year in this case 2009 of inflation. Because the model only has four months for each year the frequency is set to four. In return the prediction is for the months of January, March , July and October. 
+We still see the increasing pattern that we described earlier for the next year. Each month has a lower value than the latter so it checks
+
+## Part 3: Monthly log returns of IBM S&P 500 (1926-2008) 
+```{r}
+library('FCVAR')
+library('vars')
+library('MTS')
+library('tsDyn')
+www3 = "https://www.mimuw.edu.pl/~noble/courses/TimeSeries/data/m-ibmsp2608.txt"
+df3 = read.csv(www3, sep = "")##
+ibm <- ts(df3$ibm,start= 1926, frequency = 12)
+sp <-ts(df3$sp,start= 1926,frequency = 12)
+par(mfrow = c(2, 1))
+plot(ibm, main = 'IBM',col='purple')
+plot(sp, main = 'SP')
+```
+Plotting the two time series we see big similarity between the two timeseries object, specially in the early years of the process the aspect of the graphs is alike.
+
+```{r}
+lagsp1<-lag(df3$sp,k=1)
+lagibm1<-lag(df3$ibm,k=1)
+lagsp_1<-lag(df3$sp,k=-1)
+lagibm_1<-lag(df3$ibm,k=1)
+plot(lagsp1,lagibm1,xlab = "sp lag = 1", ylab = "ibm lag = 1", main = "Scatterplot with Lag 1")
+```
+```{r}
+plot(ibm,sp,xlab = "sp lag = 0", ylab = "ibm lag = 0", main = "Scatterplot with Lag 0", col = 'blue')
+```
+```{r}
+plot(lagsp_1,lagibm_1,xlab = "sp lag = -1", ylab = "ibm lag = -1", main = "Scatterplot with Lag -1", col = 'orange')
+```
+
+```{r}
+par(mfrow = c(2, 1))
+plot(sp,lagsp1,type='h')
+plot(sp,lagsp1,type='p')
+```
+After plotting all the different lags we can see a distribution along the $x=y$ axis, with some outliers coming from both series but the points are situated along that axis mainly. For all three lags $h \in 0,1,2$ the pattern is very akin, this means that the series change in a similar way and grow or decrease uniformly and at similar times.
+When plotting the SP and IBM in different order I also plotted the histogram version of the inequality of the timeseries to have another view of the process.
+```{r}
+
+ggseasonplot(ibm,year.labels=TRUE, )
+```
+
+```{r}
+ggseasonplot(sp,year.labels=TRUE, )
+```
+
+Plotting the seasonal plot is also positive to have an idea of how the years have transformed the IBM and SP, knowing which one is the most fluctuating as in the case of the year 1958 in the IBM or 1991 in the SP.
+```{r}
+bivariate <-cbind(ibm,sp)
+acfmulti<-acf(bivariate,plot = TRUE)
+```
+```{r}
+acfmulti
+```
+We see a general growth of the acf as the lag gets bigger. The variables followed a white noise process if their acf was 0 or close to 0 for every single lag but for $p = 0$. This is clearly not the case but is close enough. We can not conclude on anything terminant but see a very strong pattern specially for the acf of each variable with itself.
+
+
+```{r}
+var1 <-vars::VAR(bivariate,type = 'none')
+var2<-vars::VAR(bivariate,type = 'trend')
+var3<-vars::VAR(bivariate,type = 'both')
+var4<-vars::VAR(bivariate,type = 'const')
+summary(var1)
+summary(var2)
+summary(var3)
+summary(var4)
+
+```
+We try fitting a VAR model for our bivariate time series with a very poor result. The adjusted $R^2$ is below 0.1 for all four cases being extremely little.
+The selected p is 1, but the difference between models comes in the selected deterministic regressor. We choose all four possible regressors including the null one and compare with the adjusted $R^2$. Even though they are far from great when we substract the regressor form the equation it gives the best result for both the ibm and sp variables.
+In short the fit is not good but a model with none regressors is the most potable of the four
+```{r}
+ar <- ar(bivariate)
+ar$aic
+```
+Using the function 'ar' we can compute all the models with the $trend = none$. The only thing that varies is their lag $p$. We compare them pith a $VAR(p)$ model with $p\in {1,2,...,29}$. As we know the lower the AIC number the better, in this case the most optimum VAR model is VAR(5) which has exactly an AIC of $0.000000$
+```{r}
+plot(ar$aic)
+```
+
+```{R}
+var5 <- vars::VAR(bivariate,p = 5,type = 'none')
+summary(var5)
+```
+The goodness of fit of the VAR(5) model is questionable. Mainly for the fact that the $r^2$ adjusted is extremely low and the p-value suggest the rejection of the null hypothesis. Moreover there are little to no significant factors.If we assign   $\varPhi_4=0$ it would be truly reasonable due to the fact that ibm.l4 and ap.l4 are both none significant in the model as it is described.
+
+
+```{R}
+vma<-VARMA(bivariate,p=0,q=5)
+timeseriesrs <-ts( resid(vma),start = 1926,frequency = 12)
+plot(timeseriesrs, main = 'Time series of the residuals VMA process')
+```
+```{r}
+data_scaled <- scale(timeseriesrs)
+print(data_scaled)
+qqnorm(data_scaled,qqline=TRUE)
+```
+```{r}
+MVWNtest(resid(vma),maxlag=12,printResults=1)
+```
+We check for the distribution of the residual with a positive result. For both the ibm and sp residuals we encounter a $p-value > 0.5$. Well above the cut which infers the rejection of the null hypothesis $0.1$. Meaning that our test is positive and the residuals follow a very similar pattern to that of a white noise distribution.
+
+```{r}
+summary(vma)
+vma$aic
+```
+In comparision with the VAR(5) model we can detect a much less significant model with the variables not well fitted
+```
